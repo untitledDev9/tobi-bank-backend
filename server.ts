@@ -58,7 +58,7 @@ app.use(errorHandler);
 // Socket.io
 setupSocket(server, allowedOrigins);
 
-const PORT = process.env.PORT || 7070;
+const PORT = process.env.PORT || 6070;
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
