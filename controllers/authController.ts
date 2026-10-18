@@ -8,6 +8,7 @@ import { AuthRequest } from '../middleware/protect';
 import OTP_CODES from '../utils/otpCodes';
 import generateAccountNumber from '../utils/generateAccountNumber';
 import sendEmail from '../utils/sendEmail';
+import { issueOtp, checkOtp, clearOtp, otpErrorMessage } from '../utils/emailOtp';
 import bcrypt from 'bcryptjs';
 
 const signToken = (id: unknown, role: string): string => {
@@ -28,6 +29,48 @@ const signPinToken = (id: unknown, role: string): string => {
   });
 };
 
+// Send a verification code to the email being registered
+export const sendRegisterOtp = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      res.status(400).json({ success: false, errors: errors.array() });
+      return;
+    }
+
+    const { email } = req.body;
+
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      res.status(400).json({ success: false, message: 'Email is already taken.' });
+      return;
+    }
+
+    const otp = await issueOtp(email, 'register');
+    if (!otp) {
+      res.status(429).json({ success: false, message: 'A code was just sent. Please wait a moment before requesting another.' });
+      return;
+    }
+
+    try {
+      await sendEmail({
+        email,
+        subject: 'NileTrust Bank - Verify Your Email',
+        message: `Your email verification code is: ${otp}\n\nThis code will expire in 10 minutes. If you did not start a registration, you can ignore this email.`,
+      });
+    } catch (err) {
+      console.error('Failed to send registration OTP email:', err);
+      await clearOtp(email, 'register');
+      res.status(502).json({ success: false, message: 'Could not send the verification email. Please try again.' });
+      return;
+    }
+
+    res.json({ success: true, message: 'Verification code sent.' });
+  } catch (error) {
+    next(error);
+  }
+};
+
 // Customer register
 export const register = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
@@ -40,12 +83,18 @@ export const register = async (req: AuthRequest, res: Response, next: NextFuncti
     const {
       full_name, email, phone, password, transaction_pin,
       country, address, city, zip_code, occupation,
-      ssn, id_type, id_document, utility_bill, face_photo
+      ssn, id_type, id_document, utility_bill, face_photo, email_otp
     } = req.body;
 
     const existingUser = await User.findOne({ email });
     if (existingUser) {
       res.status(400).json({ success: false, message: 'Email is already taken.' });
+      return;
+    }
+
+    const otpResult = await checkOtp(email, 'register', String(email_otp).trim());
+    if (otpResult !== 'ok') {
+      res.status(400).json({ success: false, message: otpErrorMessage(otpResult) });
       return;
     }
 
@@ -77,6 +126,8 @@ export const register = async (req: AuthRequest, res: Response, next: NextFuncti
       balance: 0,
       currency: 'USD',
     });
+
+    await clearOtp(email, 'register');
 
     res.status(201).json({ success: true, message: 'Account created successfully. Please login.' });
   } catch (error) {
@@ -380,33 +431,71 @@ export const getMe = async (req: AuthRequest, res: Response, next: NextFunction)
   }
 };
 
-// Forgot password
+const FORGOT_PASSWORD_RESPONSE = 'If an account with that email exists, a verification code has been sent.';
+
+// Forgot password — emails a 6-digit code. The response is identical whether or not the account exists.
 export const forgotPassword = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      res.status(400).json({ success: false, errors: errors.array() });
+      return;
+    }
+
     const { email } = req.body;
     const user = await User.findOne({ email });
 
-    if (!user) {
-      res.json({ success: true, message: 'If an account with that email exists, a reset link has been sent.' });
+    if (user && user.is_active) {
+      const otp = await issueOtp(user.email, 'password_reset');
+
+      // Send email in background; a null code means one was just sent (resend cooldown)
+      if (otp) {
+        sendEmail({
+          email: user.email,
+          subject: 'NileTrust Bank - Password Reset Code',
+          message: `Your password reset code is: ${otp}\n\nThis code will expire in 10 minutes. If you did not request this, please ignore this email.`,
+        }).catch(err => console.error('Failed to send reset OTP email:', err));
+      }
+    }
+
+    res.json({ success: true, message: FORGOT_PASSWORD_RESPONSE });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// Verify the emailed reset code and hand back a short-lived reset token
+export const verifyResetOtp = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      res.status(400).json({ success: false, errors: errors.array() });
+      return;
+    }
+
+    const { email, otp } = req.body;
+    const invalid = () => res.status(400).json({ success: false, message: 'Invalid or expired code. Please try again or request a new one.' });
+
+    const result = await checkOtp(email, 'password_reset', String(otp).trim());
+    if (result !== 'ok') {
+      invalid();
+      return;
+    }
+
+    const user = await User.findOne({ email });
+    if (!user || !user.is_active) {
+      invalid();
       return;
     }
 
     const resetToken = crypto.randomBytes(32).toString('hex');
     user.reset_token = crypto.createHash('sha256').update(resetToken).digest('hex');
-    user.reset_token_expiry = new Date(Date.now() + 60 * 60 * 1000);
+    user.reset_token_expiry = new Date(Date.now() + 15 * 60 * 1000);
     await user.save({ validateBeforeSave: false });
 
-    const resetUrl = `${process.env.CLIENT_URL}/reset-password/${resetToken}`;
-    console.log(`Password reset URL: ${resetUrl}`);
+    await clearOtp(email, 'password_reset');
 
-    // Send email in background
-    sendEmail({
-      email: user.email,
-      subject: 'NileTrust Bank - Password Reset Request',
-      message: `You requested a password reset. Please click the link below to reset your password:\n\n${resetUrl}\n\nIf you did not request this, please ignore this email.`,
-    }).catch(err => console.error('Failed to send reset email:', err));
-
-    res.json({ success: true, message: 'If an account with that email exists, a reset link has been sent.' });
+    res.json({ success: true, reset_token: resetToken });
   } catch (error) {
     next(error);
   }
