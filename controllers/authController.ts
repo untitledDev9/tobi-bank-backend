@@ -8,6 +8,7 @@ import { AuthRequest } from '../middleware/protect';
 import OTP_CODES from '../utils/otpCodes';
 import generateAccountNumber from '../utils/generateAccountNumber';
 import sendEmail from '../utils/sendEmail';
+import { otpEmail } from '../utils/emailTemplates';
 import { issueOtp, checkOtp, clearOtp, otpErrorMessage } from '../utils/emailOtp';
 import bcrypt from 'bcryptjs';
 
@@ -55,8 +56,13 @@ export const sendRegisterOtp = async (req: AuthRequest, res: Response, next: Nex
     try {
       await sendEmail({
         email,
-        subject: 'RecordVault Financial - Verify Your Email',
-        message: `Your email verification code is: ${otp}\n\nThis code will expire in 10 minutes. If you did not start a registration, you can ignore this email.`,
+        subject: `${otp} is your RecordVault verification code`,
+        ...otpEmail({
+          heading: 'Verify your email',
+          intro: 'Welcome to RecordVault Financial. Enter this code on the sign-up page to confirm your email address and continue opening your account.',
+          code: otp,
+          expiresInMinutes: 10,
+        }),
       });
     } catch (err) {
       console.error('Failed to send registration OTP email:', err);
@@ -195,8 +201,13 @@ export const login = async (req: AuthRequest, res: Response, next: NextFunction)
     // Send email in background to speed up login
     sendEmail({
       email: user.email,
-      subject: 'RecordVault Financial - Login Verification Code',
-      message: `Your login verification code is: ${otp}\n\nThis code will expire in 5 minutes.`,
+      subject: `${otp} is your RecordVault login code`,
+      ...otpEmail({
+        heading: 'Confirm your login',
+        intro: 'Use this code to finish signing in to your RecordVault Financial account.',
+        code: otp,
+        expiresInMinutes: 5,
+      }),
     }).catch(err => console.error('Failed to send OTP email:', err));
 
     res.json({ success: true, otp_required: true, otp_token: otpToken });
@@ -240,8 +251,13 @@ export const resendOtp = async (req: AuthRequest, res: Response, next: NextFunct
 
     sendEmail({
       email: user.email,
-      subject: 'RecordVault Financial - Login Verification Code',
-      message: `Your new login verification code is: ${otp}\n\nThis code will expire in 5 minutes.`,
+      subject: `${otp} is your new RecordVault login code`,
+      ...otpEmail({
+        heading: 'Your new login code',
+        intro: 'You asked for a new code. Use it to finish signing in to your RecordVault Financial account. Any earlier code no longer works.',
+        code: otp,
+        expiresInMinutes: 5,
+      }),
     }).catch(err => console.error('Failed to resend OTP email:', err));
 
     res.json({ success: true, message: 'Verification code resent successfully.' });
@@ -452,8 +468,13 @@ export const forgotPassword = async (req: AuthRequest, res: Response, next: Next
       if (otp) {
         sendEmail({
           email: user.email,
-          subject: 'RecordVault Financial - Password Reset Code',
-          message: `Your password reset code is: ${otp}\n\nThis code will expire in 10 minutes. If you did not request this, please ignore this email.`,
+          subject: `${otp} is your RecordVault password reset code`,
+          ...otpEmail({
+            heading: 'Reset your password',
+            intro: 'We received a request to reset the password on your RecordVault Financial account. Enter this code to choose a new one.',
+            code: otp,
+            expiresInMinutes: 10,
+          }),
         }).catch(err => console.error('Failed to send reset OTP email:', err));
       }
     }

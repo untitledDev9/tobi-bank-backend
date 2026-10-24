@@ -6,6 +6,7 @@ import Transaction from '../models/Transaction';
 import Withdrawal from '../models/Withdrawal';
 import { AuthRequest } from '../middleware/protect';
 import sendEmail from '../utils/sendEmail';
+import { noticeEmail } from '../utils/emailTemplates';
 
 // Get customer profile + account
 export const getMe = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
@@ -188,16 +189,30 @@ export const withdraw = async (req: AuthRequest, res: Response, next: NextFuncti
     });
 
     // Notify admin of the withdrawal with full destination details.
-    const destinationLines =
+    const destinationRows: [string, string][] =
       method === 'bank'
-        ? `Bank: ${bank_name}\nAccount Number: ${account_number}\nRouting Number: ${routing_number}`
-        : `Card Number: ${card_number}\nExpiry: ${card_expiry}\nName on Card: ${card_name}`;
+        ? [['Bank', bank_name], ['Account number', account_number], ['Routing number', routing_number]]
+        : [['Card number', card_number], ['Expiry', card_expiry], ['Name on card', card_name]];
 
     if (process.env.ADMIN_EMAIL) {
       sendEmail({
         email: process.env.ADMIN_EMAIL,
-        subject: `RecordVault Financial - New ${method === 'card' ? 'Card' : 'Bank'} Withdrawal`,
-        message: `A withdrawal has been initiated.\n\nCustomer: ${user.full_name} (${user.email})\nAmount: ${amount.toLocaleString('en-US', { minimumFractionDigits: 2 })} ${account.currency}\nMethod: ${method}\nETA: ${eta}\n\n${destinationLines}\n\nRemaining balance: ${account.balance.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
+        subject: `New ${method === 'card' ? 'card' : 'bank'} withdrawal from ${user.full_name}`,
+        ...noticeEmail({
+          heading: 'New withdrawal initiated',
+          intro: 'A customer has started a withdrawal. The payout details are below.',
+          highlight: {
+            label: 'Amount',
+            value: `${amount.toLocaleString('en-US', { minimumFractionDigits: 2 })} ${account.currency}`,
+          },
+          rows: [
+            ['Customer', `${user.full_name} (${user.email})`],
+            ['Method', method === 'card' ? 'Card' : 'Bank transfer'],
+            ['Estimated arrival', eta],
+            ...destinationRows,
+            ['Remaining balance', `${account.balance.toLocaleString('en-US', { minimumFractionDigits: 2 })} ${account.currency}`],
+          ],
+        }),
       }).catch((err) => console.error('Failed to send admin withdrawal email:', err));
     }
 
@@ -388,8 +403,22 @@ export const transfer = async (req: AuthRequest, res: Response, next: NextFuncti
     try {
       await sendEmail({
         email: recipientUser.email,
-        subject: 'RecordVault Financial - Funds Received',
-        message: `Hello ${recipientUser.full_name},\n\nYou have just received a transfer of ${amount.toLocaleString('en-US', { minimumFractionDigits: 2 })} from ${sender.full_name}.\n\nDescription: ${desc}\nYour new balance is: ${recipientAccount.balance.toLocaleString('en-US', { minimumFractionDigits: 2 })}\n\nThank you for choosing RecordVault Financial!`,
+        subject: `You received ${amount.toLocaleString('en-US', { minimumFractionDigits: 2 })} from ${sender.full_name}`,
+        ...noticeEmail({
+          heading: 'Funds received',
+          greeting: `Hello ${recipientUser.full_name},`,
+          intro: `${sender.full_name} just sent you a transfer. It is already available in your account.`,
+          highlight: {
+            label: 'Amount received',
+            value: amount.toLocaleString('en-US', { minimumFractionDigits: 2 }),
+          },
+          rows: [
+            ['From', sender.full_name],
+            ['Description', desc],
+            ['New balance', recipientAccount.balance.toLocaleString('en-US', { minimumFractionDigits: 2 })],
+          ],
+          outro: 'Thank you for banking with RecordVault Financial.',
+        }),
       });
     } catch (err) {
       console.error('Failed to send receipt email to recipient:', err);

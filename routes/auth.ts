@@ -15,7 +15,11 @@ const registerValidation = [
   body('full_name').notEmpty().withMessage('Full name is required'),
   body('email').isEmail().normalizeEmail().withMessage('Valid email is required'),
   body('password').isLength({ min: 8 }).withMessage('Password must be at least 8 characters'),
-  body('ssn').notEmpty().withMessage('SSN is required'),
+  body('ssn')
+    .trim()
+    .matches(/^\d{3}-?\d{2}-?\d{4}$/)
+    .withMessage('SSN must be exactly 9 digits')
+    .customSanitizer((v: string) => v.replace(/\D/g, '').replace(/^(\d{3})(\d{2})(\d{4})$/, '$1-$2-$3')),
   body('id_type').isIn(['id_card', 'drivers_license']).withMessage('Valid ID type is required'),
   body('id_document').notEmpty().withMessage('ID document is required'),
   body('utility_bill').notEmpty().withMessage('Proof of address is required'),

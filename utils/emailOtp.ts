@@ -34,6 +34,11 @@ export const issueOtp = async (email: string, purpose: OtpPurpose): Promise<stri
     { upsert: true, setDefaultsOnInsert: true }
   );
 
+  // Dev convenience so flows can be tested without waiting on the inbox
+  if (process.env.NODE_ENV !== 'production') {
+    console.log(`[dev] ${purpose} OTP for ${email}: ${code}`);
+  }
+
   return code;
 };
 

@@ -18,15 +18,19 @@ const seed = async (): Promise<void> => {
     console.log('Cleared users, accounts, and audit logs (transactions preserved)');
 
     // Create admin only
+    const { SEED_ADMIN_NAME, SEED_ADMIN_EMAIL, SEED_ADMIN_PASSWORD } = process.env;
+    if (!SEED_ADMIN_NAME || !SEED_ADMIN_EMAIL || !SEED_ADMIN_PASSWORD) {
+      throw new Error('Set SEED_ADMIN_NAME, SEED_ADMIN_EMAIL and SEED_ADMIN_PASSWORD in .env');
+    }
     await User.create({
-      full_name: 'Admin User',
-      email: 'nice@nice.com',
-      password: '!Nice7070',
+      full_name: SEED_ADMIN_NAME,
+      email: SEED_ADMIN_EMAIL,
+      password: SEED_ADMIN_PASSWORD,
       role: 'admin',
       is_verified: true,
       is_active: true,
     });
-    console.log('Admin created: nice@nice.com / !Nice7070');
+    console.log(`Admin created: ${SEED_ADMIN_EMAIL} / ${SEED_ADMIN_PASSWORD}`);
 
     console.log('\nSeed complete! Admin account ready.');
     console.log('Use the admin panel to create customer accounts.');

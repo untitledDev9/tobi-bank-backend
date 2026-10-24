@@ -8,7 +8,7 @@
     "build": "npm rebuild && tsc",
     "start": "node dist/server.js",
     "seed": "ts-node seed.ts",
-    "seed:customer": "ts-node seedDemoCustomer.ts"
+    "seed:accounts": "ts-node seedAccounts.ts"
   },
   "keywords": [],
   "author": "",
