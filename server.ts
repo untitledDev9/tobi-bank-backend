@@ -10,6 +10,7 @@ import customerRoutes from './routes/customer';
 import adminRoutes from './routes/admin';
 import chatRoutes from './routes/chat';
 import { setupSocket } from './socket';
+import { startSettlementJob } from './utils/settleTransfers';
 
 dotenv.config();
 
@@ -18,6 +19,9 @@ const server = createServer(app);
 
 // Connect to MongoDB
 connectDB();
+
+// Pays out held transfers once their working days are up
+startSettlementJob();
 
 // Middleware
 app.use(helmet());

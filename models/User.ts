@@ -19,6 +19,10 @@ export interface IUser extends Document {
   reset_token_expiry?: Date;
   created_at: Date;
   created_by_admin: boolean;
+  // Working days an outgoing transfer is held as pending before the recipient is credited (0 = instant)
+  transfer_hold_days: number;
+  // When an admin last opened this account; anything newer shows as a badge in the admin panel
+  admin_seen_at?: Date;
   otp_code?: string;
   otp_expiry?: Date;
   country?: string;
@@ -111,6 +115,14 @@ const userSchema = new Schema<IUser>({
   created_by_admin: {
     type: Boolean,
     default: false,
+  },
+  transfer_hold_days: {
+    type: Number,
+    default: 0,
+    min: 0,
+  },
+  admin_seen_at: {
+    type: Date,
   },
   otp_code: {
     type: String,

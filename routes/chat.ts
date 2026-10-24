@@ -99,13 +99,17 @@ router.post('/start', protect, async (req: AuthRequest, res: Response, next: Nex
     let chat = await Chat.findOne({ customer_id: user._id, status: { $ne: 'closed' } });
 
     if (!chat) {
+      // The greeting counts as already read, so a brand new chat doesn't start with a badge
+      const now = new Date();
       chat = await Chat.create({
         customer_id: user._id,
         customer_name: user.full_name,
+        customer_read_at: now,
+        admin_read_at: now,
         messages: [{
           sender: 'ai',
           text: "Hello! Welcome to RecordVault Financial. I'm your support assistant — how can I help you today?",
-          created_at: new Date(),
+          created_at: now,
         }],
       });
     }
@@ -125,6 +129,19 @@ router.get('/:id', protect, async (req: AuthRequest, res: Response, next: NextFu
       return;
     }
     res.json({ success: true, chat });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// POST /api/chat/:id/read — customer has seen everything so far (clears the badge)
+router.post('/:id/read', protect, async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    await Chat.updateOne(
+      { _id: req.params.id, customer_id: req.user!._id },
+      { $set: { customer_read_at: new Date(), customer_unread: 0 } }
+    );
+    res.json({ success: true });
   } catch (error) {
     next(error);
   }

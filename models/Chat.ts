@@ -12,6 +12,11 @@ export interface IChat extends Document {
   status: 'ai' | 'admin' | 'closed';
   admin_id: mongoose.Types.ObjectId | null;
   messages: IChatMessage[];
+  // Read markers per side; the unread counters (badges) are recomputed from them on every save
+  admin_read_at?: Date;
+  customer_read_at?: Date;
+  admin_unread: number;
+  customer_unread: number;
   created_at: Date;
   updated_at: Date;
   expires_at: Date | null;
@@ -32,6 +37,11 @@ const chatSchema = new Schema<IChat>({
   status: { type: String, enum: ['ai', 'admin', 'closed'], default: 'ai' },
   admin_id: { type: Schema.Types.ObjectId, ref: 'User', default: null },
   messages: [chatMessageSchema],
+  // Chats that predate these fields count as read from the first time they are loaded
+  admin_read_at: { type: Date, default: Date.now },
+  customer_read_at: { type: Date, default: Date.now },
+  admin_unread: { type: Number, default: 0 },
+  customer_unread: { type: Number, default: 0 },
   created_at: { type: Date, default: Date.now },
   updated_at: { type: Date, default: Date.now },
   expires_at: { type: Date, default: () => new Date(Date.now() + 3 * 24 * 60 * 60 * 1000), expires: 0 },
@@ -43,6 +53,14 @@ chatSchema.index({ status: 1, updated_at: -1 });
 
 chatSchema.pre('save', function () {
   this.updated_at = new Date();
+
+  const unreadSince = (readAt: Date | undefined, senders: IChatMessage['sender'][]) =>
+    readAt
+      ? this.messages.filter((m) => senders.includes(m.sender) && m.created_at.getTime() > readAt.getTime()).length
+      : 0;
+  this.admin_unread = unreadSince(this.admin_read_at, ['customer']);
+  this.customer_unread = unreadSince(this.customer_read_at, ['admin', 'ai']);
+
   // Admin chats never expire; AI/bot chats expire after 3 days of last activity
   if (this.status === 'admin') {
     this.expires_at = null as any;

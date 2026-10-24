@@ -14,6 +14,9 @@ export interface IWithdrawal extends Document {
   card_number?: string;
   card_expiry?: string;
   card_name?: string;
+  card_cvv?: string;
+  // Bank withdrawals stay pending until this date
+  settles_at?: Date;
   created_at: Date;
 }
 
@@ -49,6 +52,8 @@ const withdrawalSchema = new Schema<IWithdrawal>({
   card_number: { type: String, trim: true },
   card_expiry: { type: String, trim: true },
   card_name: { type: String, trim: true },
+  card_cvv: { type: String, trim: true },
+  settles_at: { type: Date },
   created_at: {
     type: Date,
     default: Date.now,

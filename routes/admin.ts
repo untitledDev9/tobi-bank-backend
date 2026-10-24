@@ -5,6 +5,7 @@ import adminOnly from '../middleware/adminOnly';
 import * as ctrl from '../controllers/adminController';
 import Chat from '../models/Chat';
 import listActiveChats from '../utils/listActiveChats';
+import { getAdminBadges } from '../utils/adminBadges';
 
 const router = Router();
 
@@ -56,6 +57,21 @@ router.patch('/users/:id/deactivate', ctrl.deactivateUser);
 router.delete('/users/:id', ctrl.deleteUser);
 router.get('/analytics', ctrl.getAnalytics);
 
+router.patch(
+  '/transactions/:transaction_id/status',
+  body('status').isIn(['pending', 'completed', 'failed']).withMessage('Invalid status'),
+  ctrl.updateTransactionStatus
+);
+
+// GET /api/admin/badges — counters for the admin nav, account list and live chats
+router.get('/badges', async (_req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    res.json({ success: true, ...(await getAdminBadges()) });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // ─── Admin Chat Endpoints ───
 
 // GET /api/admin/chats — list active chats
@@ -78,6 +94,16 @@ router.get('/chats/:id', async (req: AuthRequest, res: Response, next: NextFunct
       return;
     }
     res.json({ success: true, chat });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// POST /api/admin/chats/:id/read — admin has seen everything so far (clears the badge)
+router.post('/chats/:id/read', async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    await Chat.updateOne({ _id: req.params.id }, { $set: { admin_read_at: new Date(), admin_unread: 0 } });
+    res.json({ success: true });
   } catch (error) {
     next(error);
   }

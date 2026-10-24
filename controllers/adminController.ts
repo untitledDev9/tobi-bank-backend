@@ -128,6 +128,9 @@ export const getUserDetail = async (req: AuthRequest, res: Response, next: NextF
       .limit(50)
       .lean();
 
+    // Opening the account counts as seeing everything on it, which clears its badge
+    await User.updateOne({ _id: user._id }, { $set: { admin_seen_at: new Date() } });
+
     // toJSON strips sensitive fields, so re-attach them explicitly for the admin view.
     const userData = user.toJSON();
     userData.plain_password = user.plain_password;
@@ -416,6 +419,71 @@ export const deactivateUser = async (req: AuthRequest, res: Response, next: Next
       success: true,
       is_active: user.is_active,
       message: `Account ${user.is_active ? 'activated' : 'deactivated'} successfully.`,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// Update transaction status
+export const updateTransactionStatus = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const { transaction_id } = req.params;
+    const { status } = req.body;
+
+    if (!['pending', 'completed', 'failed'].includes(status)) {
+      res.status(400).json({ success: false, message: 'Invalid status.' });
+      return;
+    }
+
+    const transaction = await Transaction.findById(transaction_id);
+    if (!transaction) {
+      res.status(404).json({ success: false, message: 'Transaction not found.' });
+      return;
+    }
+
+    const oldStatus = transaction.status;
+    transaction.status = status;
+
+    // If marking as completed, set settled_at timestamp
+    if (status === 'completed' && oldStatus === 'pending') {
+      transaction.settled_at = new Date();
+
+      // If this is a transfer, also credit the recipient
+      if (transaction.kind === 'transfer' && transaction.type === 'credit') {
+        const account = await Account.findById(transaction.account_id);
+        if (account) {
+          account.balance += transaction.amount;
+          account.updated_at = new Date();
+          await account.save();
+        }
+      }
+    }
+
+    await transaction.save();
+
+    // If this is a linked transfer transaction, update the counterparty transaction too
+    if (transaction.linked_transaction_id) {
+      await Transaction.findByIdAndUpdate(
+        transaction.linked_transaction_id,
+        { status, settled_at: status === 'completed' ? new Date() : undefined },
+        { new: true }
+      );
+    }
+
+    if (transaction.created_by) {
+      await AuditLog.create({
+        admin_id: req.user!._id,
+        action: 'UPDATE_TRANSACTION_STATUS',
+        target_user_id: transaction.created_by,
+        details: { transaction_id, old_status: oldStatus, new_status: status },
+      });
+    }
+
+    res.json({
+      success: true,
+      message: `Transaction status updated to ${status}.`,
+      transaction,
     });
   } catch (error) {
     next(error);
