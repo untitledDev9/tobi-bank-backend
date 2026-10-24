@@ -49,7 +49,7 @@ app.use('/api/chat', chatRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {
-  res.json({ success: true, message: 'NileTrust Bank API is running.' });
+  res.json({ success: true, message: 'RecordVault Financial API is running.' });
 });
 
 // Error handler

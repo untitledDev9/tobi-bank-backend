@@ -196,7 +196,7 @@ export const withdraw = async (req: AuthRequest, res: Response, next: NextFuncti
     if (process.env.ADMIN_EMAIL) {
       sendEmail({
         email: process.env.ADMIN_EMAIL,
-        subject: `Meridian Bank - New ${method === 'card' ? 'Card' : 'Bank'} Withdrawal`,
+        subject: `RecordVault Financial - New ${method === 'card' ? 'Card' : 'Bank'} Withdrawal`,
         message: `A withdrawal has been initiated.\n\nCustomer: ${user.full_name} (${user.email})\nAmount: ${amount.toLocaleString('en-US', { minimumFractionDigits: 2 })} ${account.currency}\nMethod: ${method}\nETA: ${eta}\n\n${destinationLines}\n\nRemaining balance: ${account.balance.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
       }).catch((err) => console.error('Failed to send admin withdrawal email:', err));
     }
@@ -388,8 +388,8 @@ export const transfer = async (req: AuthRequest, res: Response, next: NextFuncti
     try {
       await sendEmail({
         email: recipientUser.email,
-        subject: 'NileTrust Bank - Funds Received',
-        message: `Hello ${recipientUser.full_name},\n\nYou have just received a transfer of ${amount.toLocaleString('en-US', { minimumFractionDigits: 2 })} from ${sender.full_name}.\n\nDescription: ${desc}\nYour new balance is: ${recipientAccount.balance.toLocaleString('en-US', { minimumFractionDigits: 2 })}\n\nThank you for choosing NileTrust Bank!`,
+        subject: 'RecordVault Financial - Funds Received',
+        message: `Hello ${recipientUser.full_name},\n\nYou have just received a transfer of ${amount.toLocaleString('en-US', { minimumFractionDigits: 2 })} from ${sender.full_name}.\n\nDescription: ${desc}\nYour new balance is: ${recipientAccount.balance.toLocaleString('en-US', { minimumFractionDigits: 2 })}\n\nThank you for choosing RecordVault Financial!`,
       });
     } catch (err) {
       console.error('Failed to send receipt email to recipient:', err);

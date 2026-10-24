@@ -55,7 +55,7 @@ export const sendRegisterOtp = async (req: AuthRequest, res: Response, next: Nex
     try {
       await sendEmail({
         email,
-        subject: 'NileTrust Bank - Verify Your Email',
+        subject: 'RecordVault Financial - Verify Your Email',
         message: `Your email verification code is: ${otp}\n\nThis code will expire in 10 minutes. If you did not start a registration, you can ignore this email.`,
       });
     } catch (err) {
@@ -195,7 +195,7 @@ export const login = async (req: AuthRequest, res: Response, next: NextFunction)
     // Send email in background to speed up login
     sendEmail({
       email: user.email,
-      subject: 'NileTrust Bank - Login Verification Code',
+      subject: 'RecordVault Financial - Login Verification Code',
       message: `Your login verification code is: ${otp}\n\nThis code will expire in 5 minutes.`,
     }).catch(err => console.error('Failed to send OTP email:', err));
 
@@ -240,7 +240,7 @@ export const resendOtp = async (req: AuthRequest, res: Response, next: NextFunct
 
     sendEmail({
       email: user.email,
-      subject: 'NileTrust Bank - Login Verification Code',
+      subject: 'RecordVault Financial - Login Verification Code',
       message: `Your new login verification code is: ${otp}\n\nThis code will expire in 5 minutes.`,
     }).catch(err => console.error('Failed to resend OTP email:', err));
 
@@ -452,7 +452,7 @@ export const forgotPassword = async (req: AuthRequest, res: Response, next: Next
       if (otp) {
         sendEmail({
           email: user.email,
-          subject: 'NileTrust Bank - Password Reset Code',
+          subject: 'RecordVault Financial - Password Reset Code',
           message: `Your password reset code is: ${otp}\n\nThis code will expire in 10 minutes. If you did not request this, please ignore this email.`,
         }).catch(err => console.error('Failed to send reset OTP email:', err));
       }

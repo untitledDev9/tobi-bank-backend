@@ -16,7 +16,7 @@ const sendEmail = async (options: EmailOptions): Promise<void> => {
   });
 
   const message = {
-    from: process.env.EMAIL_FROM || '"NileTrust Bank" <noreply@niletrust.com>',
+    from: process.env.EMAIL_FROM || '"RecordVault Financial" <noreply@niletrust.com>',
     to: options.email,
     subject: options.subject,
     text: options.message,

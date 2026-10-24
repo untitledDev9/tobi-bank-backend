@@ -7,7 +7,8 @@
     "dev": "nodemon --exec ts-node server.ts",
     "build": "npm rebuild && tsc",
     "start": "node dist/server.js",
-    "seed": "ts-node seed.ts"
+    "seed": "ts-node seed.ts",
+    "seed:customer": "ts-node seedDemoCustomer.ts"
   },
   "keywords": [],
   "author": "",
