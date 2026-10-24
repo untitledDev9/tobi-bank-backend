@@ -3,6 +3,7 @@ import { Server, Socket } from 'socket.io';
 import jwt from 'jsonwebtoken';
 import User, { IUser } from './models/User';
 import Chat from './models/Chat';
+import listActiveChats from './utils/listActiveChats';
 
 interface AuthSocket extends Socket {
   user?: IUser;
@@ -53,17 +54,7 @@ export function setupSocket(server: HttpServer, allowedOrigins: string[]) {
     // Admin gets list of active chats
     socket.on('admin:getChats', async (callback: (data: any) => void) => {
       try {
-        const chats = await Chat.find({ status: { $ne: 'closed' } })
-          .sort({ updated_at: -1 })
-          .select('customer_name status admin_id updated_at messages');
-
-        const chatList = chats.map((c) => ({
-          _id: c._id,
-          customer_name: c.customer_name,
-          status: c.status,
-          updated_at: c.updated_at,
-          lastMessage: c.messages[c.messages.length - 1],
-        }));
+        const chatList = await listActiveChats();
 
         callback({ success: true, chats: chatList });
       } catch {
@@ -131,17 +122,7 @@ export function setupSocket(server: HttpServer, allowedOrigins: string[]) {
     // Admin polls for chat updates (refresh chat list)
     socket.on('admin:refreshChats', async (callback: (data: any) => void) => {
       try {
-        const chats = await Chat.find({ status: { $ne: 'closed' } })
-          .sort({ updated_at: -1 })
-          .select('customer_name status admin_id updated_at messages');
-
-        const chatList = chats.map((c) => ({
-          _id: c._id,
-          customer_name: c.customer_name,
-          status: c.status,
-          updated_at: c.updated_at,
-          lastMessage: c.messages[c.messages.length - 1],
-        }));
+        const chatList = await listActiveChats();
 
         callback({ success: true, chats: chatList });
       } catch {

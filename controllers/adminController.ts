@@ -30,11 +30,13 @@ export const getUsers = async (req: AuthRequest, res: Response, next: NextFuncti
     const pageNum = parseInt(page);
     const limitNum = parseInt(limit);
     const skip = (pageNum - 1) * limitNum;
-    const total = await User.countDocuments(query);
-    const users = await User.find(query).sort({ created_at: -1 }).skip(skip).limit(limitNum);
+    const [total, users] = await Promise.all([
+      User.countDocuments(query),
+      User.find(query).sort({ created_at: -1 }).skip(skip).limit(limitNum),
+    ]);
 
     const userIds = users.map((u) => u._id);
-    const accounts = await Account.find({ user_id: { $in: userIds } });
+    const accounts = await Account.find({ user_id: { $in: userIds } }).lean();
     const accountMap: Record<string, any> = {};
     accounts.forEach((acc) => {
       accountMap[acc.user_id.toString()] = acc;
@@ -117,13 +119,14 @@ export const getUserDetail = async (req: AuthRequest, res: Response, next: NextF
       return;
     }
 
-    const account = await Account.findOne({ user_id: user._id });
+    const [account, withdrawals] = await Promise.all([
+      Account.findOne({ user_id: user._id }).lean(),
+      Withdrawal.find({ user_id: user._id }).sort({ created_at: -1 }).limit(50).lean(),
+    ]);
     const transactions = await Transaction.find({ account_id: account?._id })
       .sort({ created_at: -1 })
-      .limit(50);
-    const withdrawals = await Withdrawal.find({ user_id: user._id })
-      .sort({ created_at: -1 })
-      .limit(50);
+      .limit(50)
+      .lean();
 
     // toJSON strips sensitive fields, so re-attach them explicitly for the admin view.
     const userData = user.toJSON();
@@ -236,24 +239,20 @@ export const toggleVerify = async (req: AuthRequest, res: Response, next: NextFu
 // Analytics for admin dashboard
 export const getAnalytics = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const totalUsers = await User.countDocuments({ role: 'customer' });
-    const verifiedUsers = await User.countDocuments({ role: 'customer', is_verified: true });
-    const activeUsers = await User.countDocuments({ role: 'customer', is_active: true });
-
-    const balanceAgg = await Account.aggregate([
-      { $group: { _id: null, total: { $sum: '$balance' } } },
-    ]);
+    const [totalUsers, verifiedUsers, activeUsers, balanceAgg, recentTransactions, recentAuditLogs] =
+      await Promise.all([
+        User.countDocuments({ role: 'customer' }),
+        User.countDocuments({ role: 'customer', is_verified: true }),
+        User.countDocuments({ role: 'customer', is_active: true }),
+        Account.aggregate([{ $group: { _id: null, total: { $sum: '$balance' } } }]),
+        Transaction.find().sort({ created_at: -1 }).limit(10).lean(),
+        AuditLog.find()
+          .sort({ created_at: -1 })
+          .limit(10)
+          .populate('admin_id', 'full_name email')
+          .populate('target_user_id', 'full_name email'),
+      ]);
     const totalBalance = balanceAgg[0]?.total || 0;
-
-    const recentTransactions = await Transaction.find()
-      .sort({ created_at: -1 })
-      .limit(10);
-
-    const recentAuditLogs = await AuditLog.find()
-      .sort({ created_at: -1 })
-      .limit(10)
-      .populate('admin_id', 'full_name email')
-      .populate('target_user_id', 'full_name email');
 
     res.json({
       success: true,

@@ -11,13 +11,15 @@ import { noticeEmail } from '../utils/emailTemplates';
 // Get customer profile + account
 export const getMe = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const account = await Account.findOne({ user_id: req.user!._id });
+    const [account, fullUser] = await Promise.all([
+      Account.findOne({ user_id: req.user!._id }),
+      User.findById(req.user!._id).select('+transaction_pin'),
+    ]);
     if (!account) {
       res.status(404).json({ success: false, message: 'Account not found.' });
       return;
     }
 
-    const fullUser = await User.findById(req.user!._id).select('+transaction_pin');
     const userData = req.user!.toJSON();
     userData.has_transaction_pin = !!fullUser?.transaction_pin;
 
@@ -37,7 +39,7 @@ export const getMe = async (req: AuthRequest, res: Response, next: NextFunction)
 // Get transactions with pagination, filters, search
 export const getTransactions = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const account = await Account.findOne({ user_id: req.user!._id });
+    const account = await Account.findOne({ user_id: req.user!._id }).select('_id').lean();
     if (!account) {
       res.status(404).json({ success: false, message: 'Account not found.' });
       return;
@@ -71,12 +73,10 @@ export const getTransactions = async (req: AuthRequest, res: Response, next: Nex
     const pageNum = parseInt(page);
     const limitNum = Math.min(parseInt(limit) || 20, 100);
     const skip = (pageNum - 1) * limitNum;
-    const total = await Transaction.countDocuments(query);
-
-    const transactions = await Transaction.find(query)
-      .sort({ created_at: -1 })
-      .skip(skip)
-      .limit(limitNum);
+    const [total, transactions] = await Promise.all([
+      Transaction.countDocuments(query),
+      Transaction.find(query).sort({ created_at: -1 }).skip(skip).limit(limitNum).lean(),
+    ]);
 
     res.json({
       success: true,
@@ -400,29 +400,26 @@ export const transfer = async (req: AuthRequest, res: Response, next: NextFuncti
       created_by: req.user!._id,
     });
 
-    try {
-      await sendEmail({
-        email: recipientUser.email,
-        subject: `You received ${amount.toLocaleString('en-US', { minimumFractionDigits: 2 })} from ${sender.full_name}`,
-        ...noticeEmail({
-          heading: 'Funds received',
-          greeting: `Hello ${recipientUser.full_name},`,
-          intro: `${sender.full_name} just sent you a transfer. It is already available in your account.`,
-          highlight: {
-            label: 'Amount received',
-            value: amount.toLocaleString('en-US', { minimumFractionDigits: 2 }),
-          },
-          rows: [
-            ['From', sender.full_name],
-            ['Description', desc],
-            ['New balance', recipientAccount.balance.toLocaleString('en-US', { minimumFractionDigits: 2 })],
-          ],
-          outro: 'Thank you for banking with RecordVault Financial.',
-        }),
-      });
-    } catch (err) {
-      console.error('Failed to send receipt email to recipient:', err);
-    }
+    // Send in background; the transfer is already done and a failed receipt shouldn't hold up the response
+    sendEmail({
+      email: recipientUser.email,
+      subject: `You received ${amount.toLocaleString('en-US', { minimumFractionDigits: 2 })} from ${sender.full_name}`,
+      ...noticeEmail({
+        heading: 'Funds received',
+        greeting: `Hello ${recipientUser.full_name},`,
+        intro: `${sender.full_name} just sent you a transfer. It is already available in your account.`,
+        highlight: {
+          label: 'Amount received',
+          value: amount.toLocaleString('en-US', { minimumFractionDigits: 2 }),
+        },
+        rows: [
+          ['From', sender.full_name],
+          ['Description', desc],
+          ['New balance', recipientAccount.balance.toLocaleString('en-US', { minimumFractionDigits: 2 })],
+        ],
+        outro: 'Thank you for banking with RecordVault Financial.',
+      }),
+    }).catch((err) => console.error('Failed to send receipt email to recipient:', err));
 
     res.json({
       success: true,

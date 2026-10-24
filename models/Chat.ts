@@ -37,6 +37,10 @@ const chatSchema = new Schema<IChat>({
   expires_at: { type: Date, default: () => new Date(Date.now() + 3 * 24 * 60 * 60 * 1000), expires: 0 },
 });
 
+// Resume lookup for a customer, and the admin list of non-closed chats by recency.
+chatSchema.index({ customer_id: 1, status: 1 });
+chatSchema.index({ status: 1, updated_at: -1 });
+
 chatSchema.pre('save', function () {
   this.updated_at = new Date();
   // Admin chats never expire; AI/bot chats expire after 3 days of last activity

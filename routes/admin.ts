@@ -4,6 +4,7 @@ import protect, { AuthRequest } from '../middleware/protect';
 import adminOnly from '../middleware/adminOnly';
 import * as ctrl from '../controllers/adminController';
 import Chat from '../models/Chat';
+import listActiveChats from '../utils/listActiveChats';
 
 const router = Router();
 
@@ -60,17 +61,7 @@ router.get('/analytics', ctrl.getAnalytics);
 // GET /api/admin/chats — list active chats
 router.get('/chats', async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const chats = await Chat.find({ status: { $ne: 'closed' } })
-      .sort({ updated_at: -1 })
-      .select('customer_name status admin_id updated_at messages');
-
-    const chatList = chats.map((c) => ({
-      _id: c._id,
-      customer_name: c.customer_name,
-      status: c.status,
-      updated_at: c.updated_at,
-      lastMessage: c.messages[c.messages.length - 1],
-    }));
+    const chatList = await listActiveChats();
 
     res.json({ success: true, chats: chatList });
   } catch (error) {
@@ -81,7 +72,7 @@ router.get('/chats', async (req: AuthRequest, res: Response, next: NextFunction)
 // GET /api/admin/chats/:id — get full chat
 router.get('/chats/:id', async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const chat = await Chat.findById(req.params.id);
+    const chat = await Chat.findById(req.params.id).lean();
     if (!chat) {
       res.status(404).json({ success: false, message: 'Chat not found' });
       return;

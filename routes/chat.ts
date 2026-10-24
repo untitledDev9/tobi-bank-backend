@@ -119,7 +119,7 @@ router.post('/start', protect, async (req: AuthRequest, res: Response, next: Nex
 // GET /api/chat/:id — get chat messages (for polling)
 router.get('/:id', protect, async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const chat = await Chat.findOne({ _id: req.params.id, customer_id: req.user!._id });
+    const chat = await Chat.findOne({ _id: req.params.id, customer_id: req.user!._id }).lean();
     if (!chat) {
       res.status(404).json({ success: false, message: 'Chat not found' });
       return;

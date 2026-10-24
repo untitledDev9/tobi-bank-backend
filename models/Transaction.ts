@@ -45,4 +45,8 @@ const transactionSchema = new Schema<ITransaction>({
   },
 });
 
+// Per-account history (newest first) and the admin dashboard's global recent list.
+transactionSchema.index({ account_id: 1, created_at: -1 });
+transactionSchema.index({ created_at: -1 });
+
 export default mongoose.model<ITransaction>('Transaction', transactionSchema);

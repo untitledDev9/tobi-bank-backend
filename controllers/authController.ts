@@ -422,13 +422,11 @@ export const logout = (req: AuthRequest, res: Response): void => {
 export const getMe = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
     const user = req.user!;
-    let account = null;
 
-    if (user.role === 'customer') {
-      account = await Account.findOne({ user_id: user._id });
-    }
-
-    const fullUser = await User.findById(user._id).select('+transaction_pin');
+    const [account, fullUser] = await Promise.all([
+      user.role === 'customer' ? Account.findOne({ user_id: user._id }) : null,
+      User.findById(user._id).select('+transaction_pin'),
+    ]);
     const userData = user.toJSON();
     userData.has_transaction_pin = !!fullUser?.transaction_pin;
 

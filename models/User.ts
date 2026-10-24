@@ -163,6 +163,9 @@ const userSchema = new Schema<IUser>({
   },
 });
 
+// Admin customer list: filtered by role, newest first.
+userSchema.index({ role: 1, created_at: -1 });
+
 userSchema.pre('save', async function () {
   if (!this.isModified('password')) return;
   this.password = await bcrypt.hash(this.password, 12);
