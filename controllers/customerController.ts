@@ -23,7 +23,7 @@ export const getMe = async (req: AuthRequest, res: Response, next: NextFunction)
 
     const [account, fullUser] = await Promise.all([
       Account.findOne({ user_id: req.user!._id }),
-      User.findById(req.user!._id).select('+transaction_pin'),
+      User.findById(req.user!._id).select('+transaction_pin +id_document +utility_bill +face_photo'),
     ]);
     if (!account) {
       res.status(404).json({ success: false, message: 'Account not found.' });
@@ -32,6 +32,9 @@ export const getMe = async (req: AuthRequest, res: Response, next: NextFunction)
 
     const userData = req.user!.toJSON();
     userData.has_transaction_pin = !!fullUser?.transaction_pin;
+    userData.has_id_document = !!fullUser?.id_document;
+    userData.has_utility_bill = !!fullUser?.utility_bill;
+    userData.has_face_photo = !!fullUser?.face_photo;
 
     res.json({
       success: true,
@@ -280,6 +283,44 @@ export const updateProfile = async (req: AuthRequest, res: Response, next: NextF
     await user.save({ validateBeforeSave: false });
 
     res.json({ success: true, user: user.toJSON(), message: 'Profile updated successfully.' });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// Add or replace KYC documents (skipped during registration)
+export const uploadIdentityDocuments = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      res.status(400).json({ success: false, message: errors.array()[0].msg });
+      return;
+    }
+
+    const { id_type, id_document, utility_bill, face_photo } = req.body;
+    if (!id_document && !utility_bill && !face_photo) {
+      res.status(400).json({ success: false, message: 'Upload at least one document.' });
+      return;
+    }
+
+    const user = await User.findById(req.user!._id);
+    if (!user) {
+      res.status(404).json({ success: false, message: 'User not found.' });
+      return;
+    }
+    if (user.is_verified) {
+      res.status(400).json({ success: false, message: 'Your identity has already been verified.' });
+      return;
+    }
+
+    if (id_type) user.id_type = id_type;
+    if (id_document) user.id_document = id_document;
+    if (utility_bill) user.utility_bill = utility_bill;
+    if (face_photo) user.face_photo = face_photo;
+
+    await user.save({ validateBeforeSave: false });
+
+    res.json({ success: true, message: 'Documents uploaded. Our compliance team will review them shortly.' });
   } catch (error) {
     next(error);
   }

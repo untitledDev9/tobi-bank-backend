@@ -46,6 +46,24 @@ router.patch(
   ctrl.updateProfile
 );
 
+const imageDataUrl = (field: string) =>
+  body(field)
+    .optional({ values: 'falsy' })
+    .isString()
+    .matches(/^data:image\//)
+    .withMessage('Documents must be image files');
+
+router.post(
+  '/identity-documents',
+  [
+    body('id_type').optional().isIn(['id_card', 'drivers_license']).withMessage('Valid ID type is required'),
+    imageDataUrl('id_document'),
+    imageDataUrl('utility_bill'),
+    imageDataUrl('face_photo'),
+  ],
+  ctrl.uploadIdentityDocuments
+);
+
 router.post(
   '/change-password',
   [

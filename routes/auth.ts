@@ -21,9 +21,9 @@ const registerValidation = [
     .withMessage('SSN must be exactly 9 digits')
     .customSanitizer((v: string) => v.replace(/\D/g, '').replace(/^(\d{3})(\d{2})(\d{4})$/, '$1-$2-$3')),
   body('id_type').isIn(['id_card', 'drivers_license']).withMessage('Valid ID type is required'),
-  body('id_document').notEmpty().withMessage('ID document is required'),
-  body('utility_bill').notEmpty().withMessage('Proof of address is required'),
-  body('face_photo').notEmpty().withMessage('Face verification photo is required'),
+  body('id_document').optional({ values: 'falsy' }).isString(),
+  body('utility_bill').optional({ values: 'falsy' }).isString(),
+  body('face_photo').optional({ values: 'falsy' }).isString(),
   body('email_otp').trim().matches(/^\d{6}$/).withMessage('A 6-digit email verification code is required'),
 ];
 
