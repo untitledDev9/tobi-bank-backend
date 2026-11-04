@@ -17,6 +17,10 @@ dotenv.config();
 const app = express();
 const server = createServer(app);
 
+// Render (and most hosts) sit behind one reverse proxy. Without this, express-rate-limit
+// sees every request as coming from the proxy's IP instead of the real client.
+app.set('trust proxy', 1);
+
 // Connect to MongoDB
 connectDB();
 
